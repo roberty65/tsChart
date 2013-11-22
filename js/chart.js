@@ -1,6 +1,11 @@
 // pixel adjustment
 var delta = 0.0;
 
+function log(m)
+{
+	$("#log").append(m+"<br>");
+}
+
 function drawLine(ctx, x1, y1, x2, y2, stl)
 {
 	ctx.save();
@@ -60,6 +65,16 @@ function restoreRectangle(ctx, x, y, imgData)
 {
 	//ctx.putImageData(imgData, x + delta, y + delta);
 	ctx.putImageData(imgData, x, y);
+}
+
+function formatLegend(n)
+{
+	var i = Math.floor(n);
+	if (Math.abs(n-i) < 1e-8) {
+		return n.toFixed(0);
+	}
+
+	return n.toFixed(2);
 }
 
 function drawChartGroup(cgs, idx, id)
@@ -127,6 +142,51 @@ function drawChartGroup(cgs, idx, id)
 	
 	drawLine(ctx, cgs.padding_left, cgs.padding_top, cgs.padding_left, height - cgs.padding_bottom, 'black');
 	drawLine(ctx, cgs.padding_left, height - cgs.padding_bottom, width - cgs.padding_right, height - cgs.padding_bottom, 'black');
+	drawLine(ctx, cgs.padding_left, cgs.padding_top, width - cgs.padding_right, cgs.padding_top, 'black');
+	drawLine(ctx, width - cgs.padding_right, cgs.padding_top, width - cgs.padding_right, height - cgs.padding_bottom, 'black');
+	
+	if (chart.left_series > 0) {
+		for (var i = 0; i < chart.rt_left_step_c; ++i) {
+			drawLine(ctx, cgs.padding_left, height - cgs.padding_bottom - (i + 1) * chart.rt_left_step_h,
+						  cgs.padding_left + 5, height - cgs.padding_bottom - (i + 1) * chart.rt_left_step_h,
+						  'black');
+		}
+		
+		for (var i = 0; i <= chart.rt_left_step_c; ++i) {
+			var leg = formatLegend(chart.rt_left_axis_min + i * chart.rt_left_step_v);
+			ctx.fillText(leg, cgs.padding_left - 20, height - cgs.padding_bottom + 2 - i * chart.rt_left_step_h);
+		}
+	}
+	
+	if (chart.right_series > 0) {
+		for (var i = 0; i < chart.rt_right_step_c; ++i) {
+			drawLine(ctx, width - cgs.padding_right - 5, height - cgs.padding_bottom - (i + 1) * chart.rt_right_step_h,
+						  width - cgs.padding_right, height - cgs.padding_bottom - (i + 1) * chart.rt_right_step_h,
+						  'black');
+		}
+		
+		for (var i = 0; i <= chart.rt_right_step_c; ++i) {
+			var leg = formatLegend(chart.rt_right_axis_min + i * chart.rt_right_step_v);
+			ctx.fillText(leg, width - cgs.padding_right + 2, height - cgs.padding_bottom + 2 - i * chart.rt_right_step_h);
+		}
+	}
+	
+	//xcoordinate:{"type":"hour","unit":3,"step_w":60,"step_c":10}
+	for (var i = 0; i <= chart.xcood.step_c; ++i) {
+		drawLine(ctx, cgs.padding_left + i * chart.xcood.step_w, height - cgs.padding_bottom,
+					  cgs.padding_left + i * chart.xcood.step_w, height - cgs.padding_bottom - 5, 'black');
+	}
+
+	var date = new Date(chart.start * 1000.0);
+	for (var i = 0; i <= chart.xcood.step_c; ++i) {
+		if (chart.xcood.type == "hour") {
+			var d2 = new Date(chart.start * 1000.0);
+			log(d2);
+			d2.setHours(d2.getHours() + i * chart.xcood.unit);
+			var m = d2.getHours() + ":" + "00";
+			ctx.fillText(m, cgs.padding_left - 5 + i * chart.xcood.step_w, height - cgs.padding_bottom + 12);
+		}
+	}
 }
 
 function getMouseXY(canvas, event)
@@ -358,6 +418,153 @@ function autoAxisMinMax(min, max, gmin, gmax, rt_min, rt_max, rt_gmin, rt_gmax)
 	return { "min": rMin, "max":rMax };
 }
 
+function findNumberStep(n)
+{
+	var s = 1;
+	if (n >= 0.1) {
+		while (s < n) { s = s * 10; }
+	}
+	else {
+		do { s = s / 10; } while (s > n);
+		s *= 10;
+	}
+	
+	var j = n / s;
+	var k;
+	if (j > 0.5) k = s;
+	else if (j > 0.2) k = s/2;
+	else if (j > 0.0) k = s/5;
+	else k = s/10;
+	//log("n="+n+", s="+s+", j="+j+", k="+k);
+	return k;
+}
+
+function calcNumberLegend(min, max, height)
+{
+	var step_h = 40;
+	var step;
+	var cnt = Math.floor(Math.floor(height / step_h) / 2) * 2;
+	if (cnt > 10) cnt = cnt / 10 * 10;
+	
+	log("INPUT: min="+min+", max="+max+", height="+height);
+	while (true) {
+		var step = (max - min) / cnt;
+		var step = findNumberStep(step);
+
+		max = Math.ceil(max / step) * step;
+		min = Math.floor(min / step) * step;
+
+		var cnt2 = (max - min) / step;
+		if (cnt2 < cnt) {
+			max = min + cnt * step;
+			break;
+		}
+		
+		if ((cnt2 - cnt) < 1e-8) {
+			break;
+		}
+	}
+
+	step_h = height / cnt;
+	return { "min": min, "max": max, "step": step, "cnt": cnt, "step_h":step_h};
+}
+
+function findTimeStep(msec)
+{
+	var S_P_D = 86400;
+	var S_P_M = 30 * S_P_D;
+	var S_P_Y = 365.24219 * S_P_D;
+
+	var years = msec / (1000.0 * S_P_Y);
+	if (years >= 1.0) {
+		var unit = findStep(years);
+		return {"type": "year", "unit":unit};
+	}
+
+	var months = msec / (1000.0 * S_P_M);
+	if (months > 6) { return {"type":"year",  "unit":1}; }
+	if (months > 4) { return {"type":"month", "unit":6}; }
+	if (months > 3) { return {"type":"month", "unit":4}; }
+	if (months > 2) { return {"type":"month", "unit":3}; }
+	if (months > 1) { return {"type":"month", "unit":2}; }
+	
+	var days = msec / (1000.0 * S_P_D);
+	if (days > 25) { return {"type":"month", "unit":1}; }
+	if (days >= 1.0) {
+		var unit = findStep(days);
+		return {"type":"day", "unit":unit};
+	}
+	
+	var hours = msec / (1000.0 * 3600);
+	if (hours > 12) { return {"type":"day", "unit":1}; }
+	if (hours > 8) { return  {"type":"hour", "unit":12}; }
+	if (hours > 6) { return  {"type":"hour", "unit":8}; }
+	if (hours > 3) { return  {"type":"hour", "unit":6}; }
+	if (hours > 2) { return  {"type":"hour", "unit":3}; }
+	if (hours > 1) { return  {"type":"hour", "unit":2}; }
+	
+	var mins = msec / (1000.0 * 60);
+	if (mins > 30) { return {"type":"hour", "unit":1}; }
+	if (mins > 20) { return {"type":"minute", "unit":30};}
+	if (mins > 15) { return {"type":"minute", "unit":20};}
+	if (mins > 10) { return {"type":"minute", "unit":15};}
+	if (mins > 5) { return {"type":"minute", "unit":10};}
+	if (mins > 2) { return {"type":"minute", "unit":5};}
+	if (mins > 1) { return {"type":"minute", "unit":2};}
+	
+	var secs = msec / 1000.0;
+	if (secs > 30) { return {"type":"minute", "unit":1}; }
+	if (secs > 20) { return {"type":"second", "unit":30}; }
+	if (secs > 15) { return {"type":"second", "unit":20}; }
+	if (secs > 10) { return {"type":"second", "unit":15}; }
+	if (secs > 5) { return {"type":"second", "unit":10}; }
+	if (secs > 2) { return {"type":"second", "unit":5}; }
+	if (secs > 1) { return {"type":"second", "unit":2}; }
+	
+	if (msec < 1) msec = 1;
+	var unit = findStep(msec);
+	if (unit > 900) { return {"type":"second", "unit":1}; }
+	return {"type":"millisecond", "unit":unit};
+}
+
+function calcTimeLegend(start, end, width)
+{
+	var step_w = 60;
+	var cnt = Math.floor(Math.floor(width / step_w) / 2) * 2;
+	if (cnt > 10) cnt = Math.floor(cnt / 10) * 10;
+	
+	
+	var step_1 = (end - start) / cnt;
+	var step_2 = findTimeStep(step_1);
+	step_2.step_w = 60;
+	step_2.step_c = cnt;
+
+	return step_2;
+}
+
+function calcAxisLengend(min, max, height)
+{
+	var step_h = 40;
+	var step;
+
+	var exp = Math.log(max-min)/Math.log(10);
+	var cnt = Math.floor(height / step_h) / 2 * 2;
+	if (cnt > 10) cnt = cnt / 10 * 10;
+	
+	while (true) {
+		step = Math.ceil((max - min) / cnt);
+		var e = Math.floor(Math.log(step)/Math.LN10);
+		
+		step = step / Math.pow(10, e) * Math.pow(10, e);
+		max = (max + step - 1) / step * step;
+		min = min / step * step;
+		var s2 = Math.ceil((max - min) / cnt);
+		if (s2 == step) break;
+	}
+
+	return { "min": min, "max": "max", "step": step, "cnt": cnt};
+}
+
 function calcAxisMinMax(cgs, width, height)
 {
 	for (var i = 0; i < cgs.charts.length; ++i) {
@@ -367,10 +574,17 @@ function calcAxisMinMax(cgs, width, height)
 									cgs.left_axis_min, cgs.left_axis_max,
 			                        chart.rt_left_axis_min, chart.rt_left_axis_max,
 			                        cgs.rt_left_axis_min, cgs.rt_left_axis_max);
-			chart.rt_left_axis_min = mm.min;
-			chart.rt_left_axis_max = mm.max;
+			var axis = calcNumberLegend(mm.min, mm.max, height - cgs.padding_bottom - cgs.padding_top);
+			log(JSON.stringify(axis));
 
-			chart.rt_left_adjust = (height - cgs.padding_top - cgs.padding_bottom) / (mm.max - mm.min);
+			chart.rt_left_axis_min = axis.min;
+			chart.rt_left_axis_max = axis.max;
+			chart.rt_left_step_h = axis.step_h;
+			chart.rt_left_step_v = axis.step;
+			chart.rt_left_step_c = axis.cnt;
+
+			chart.rt_left_adjust = (height - cgs.padding_top - cgs.padding_bottom) / (axis.max - axis.min);
+			log("left-adjust-by="+chart.rt_left_adjust);
 		}
 		
 		if (chart.right_series > 0) {
@@ -378,11 +592,22 @@ function calcAxisMinMax(cgs, width, height)
 									cgs.right_axis_min, cgs.right_axis_max,
 			                        chart.rt_right_axis_min, chart.rt_right_axis_max,
 			                        cgs.rt_right_axis_min, cgs.rt_right_axis_max);
-			chart.rt_right_axis_min = mm.min;
-			chart.rt_right_axis_max = mm.max;
-
-			chart.rt_right_adjust = (height - cgs.padding_left - cgs.padding_right) / (mm.max - mm.min);
+			var axis = calcNumberLegend(mm.min, mm.max, height - cgs.padding_bottom - cgs.padding_top);
+			log(JSON.stringify(axis));
+			
+			chart.rt_right_axis_min = axis.min;
+			chart.rt_right_axis_max = axis.max;
+			chart.rt_right_step_h = axis.step_h;
+			chart.rt_right_step_v = axis.step;
+			chart.rt_right_step_c = axis.cnt;
+			
+			chart.rt_right_adjust = (height - cgs.padding_top - cgs.padding_bottom) / (axis.max - axis.min);
+			log("right-adjust-by="+chart.rt_right_adjust);
 		}
+		
+		var axis = calcTimeLegend(chart.start * 1000.0, chart.end * 1000.0, width - cgs.padding_left - cgs.padding_right);
+		log("xcoordinate:" + JSON.stringify(axis));
+		chart.xcood = axis;
 	}
 }
 

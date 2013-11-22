@@ -10,7 +10,7 @@ var cgs = {
 	   "right_axis_step": "auto",
 	   
 	   "padding_left": 50,
-	   "padding_top": 50,
+	   "padding_top": 58,
 	   "padding_right": 50,
 	   "padding_bottom": 50,
 	   
